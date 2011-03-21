@@ -1,5 +1,9 @@
 module Cocoon
   module ViewHelpers
+    class EmptyProxy
+      def method_missing(*args)
+      end
+    end
 
 
     # this will show a link to remove the current association. This should be placed inside the partial.
@@ -23,17 +27,21 @@ module Cocoon
         name         = args[0]
         f            = args[1]
         html_options = args[2] || {}
-
-        is_dynamic = f.object.new_record?
+        
+        is_dynamic = !f.object.respond_to?(:new_record?) || f.object.new_record?
         html_options[:class] = [html_options[:class], "remove_fields #{is_dynamic ? 'dynamic' : 'existing'}"].compact.join(' ')
         hidden_field_tag("#{f.object_name}[_destroy]") + link_to(name, '#', html_options)
       end
     end
 
     # :nodoc:
-    def render_association(association, f, new_object)
+    def render_association(association, f, new_object, options = {})
       f.fields_for(association, new_object, :child_index => "new_#{association}") do |builder|
-        render(association.to_s.singularize + "_fields", :f => builder, :dynamic => true)
+        if options[:cell]
+          render_cell(options[:cell], association.to_s.singularize + "_fields", :f => builder, :dynamic => true)
+        else
+          render(association.to_s.singularize + "_fields", :f => builder, :dynamic => true)
+        end
       end
     end
 
@@ -59,9 +67,14 @@ module Cocoon
 
         html_options[:class] = [html_options[:class], "add_fields"].compact.join(' ')
         html_options[:'data-association'] = association.to_s.singularize
+        
+        if reflection = f.object.class.reflect_on_association(association)
+            new_object = reflection.klass.new
+        elsif serialized_attribute = f.object.class.serialized_attributes[association.to_s]
+            new_object = serialized_attribute.respond_to?(:child_class) ? serialized_attribute.child_class.new : serialized_attribute.new
+        end
 
-        new_object = f.object.class.reflect_on_association(association).klass.new
-        html_options[:'data-template'] = CGI.escapeHTML(render_association(association, f, new_object))
+        html_options[:'data-template'] = CGI.escapeHTML(render_association(association, f, new_object, html_options))
 
         link_to(name, '#', html_options )
       end
